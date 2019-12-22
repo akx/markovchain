@@ -104,23 +104,24 @@ class JsonStorage(Storage):
         count : `int`, optional
             Link count (default: 1).
         """
-        try:
-            node = dataset[source]
-            values, links = node
-            if isinstance(links, list):
-                try:
-                    idx = links.index(target)
-                    values[idx] += count
-                except ValueError:
-                    links.append(target)
-                    values.append(count)
-            elif links == target:
-                node[0] += count
-            else:
-                node[0] = [values, count]
-                node[1] = [links, target]
-        except KeyError:
+        if source not in dataset:
             dataset[source] = [count, target]
+            return
+
+        node = dataset[source]
+        values, links = node
+        if isinstance(links, list):
+            try:
+                idx = links.index(target)
+                values[idx] += count
+            except ValueError:
+                links.append(target)
+                values.append(count)
+        elif links == target:
+            node[0] += count
+        else:
+            node[0] = [values, count]
+            node[1] = [links, target]
 
     def replace_state_separator(self, old_separator, new_separator):
         self.do_replace_state_separator(
