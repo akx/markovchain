@@ -84,15 +84,10 @@ class JsonStorage(Storage):
         """
         if data is None:
             return None
-        try:
+
+        if not create:
             return data[key]
-        except KeyError:
-            if create:
-                dataset = {}
-                data[key] = dataset
-                return dataset
-            else:
-                raise
+        return data.setdefault(key, {})
 
     @staticmethod
     def add_link(dataset, source, target, count=1):
