@@ -3,6 +3,7 @@ from collections import deque
 import pytest
 
 from markovchain import JsonStorage
+from markovchain.storage.json import counterify
 
 
 def test_json_storage_empty():
@@ -34,8 +35,8 @@ def test_json_storage_add_links():
     ])
     assert storage.nodes == {
         '0': {
-            'x': [2, 'y'],
-            'y': [1, 'z']
+            'x': counterify([2, 'y']),
+            'y': counterify([1, 'z']),
         }
     }
     storage.add_links([
@@ -45,9 +46,9 @@ def test_json_storage_add_links():
     ])
     assert storage.nodes == {
         '0': {
-            'x': [[3, 1], ['y', 'z']],
-            'y': [1, 'z'],
-            'z': [1, 'x']
+            'x': counterify([[3, 1], ['y', 'z']]),
+            'y': counterify([1, 'z']),
+            'z': counterify([1, 'x']),
         }
     }
     storage.add_links([
@@ -55,12 +56,12 @@ def test_json_storage_add_links():
     ])
     assert storage.nodes == {
         '0': {
-            'x': [[3, 1], ['y', 'z']],
-            'y': [1, 'z'],
-            'z': [1, 'x']
+            'x': counterify([[3, 1], ['y', 'z']]),
+            'y': counterify([1, 'z']),
+            'z': counterify([1, 'x']),
         },
         '1': {
-            'x': [1, 'y']
+            'x': counterify([1, 'y']),
         }
     }
     assert storage.backward is None
@@ -74,9 +75,9 @@ def test_json_storage_add_links_backward():
     ])
     assert storage.backward == {
         '0': {
-            'y y': [1, 'x'],
-            'z z': [1, 'y'],
-            'x x': [1, 'z']
+            'y y': counterify([1, 'x']),
+            'z z': counterify([1, 'y']),
+            'x x': counterify([1, 'z']),
         }
     }
 
@@ -120,12 +121,12 @@ def test_json_storage_get_states(dataset, string, res):
 def test_json_storage_get_links(args, res):
     dataset = (
         {
-            'x': [1, 'y'],
-            'y': [[1, 2, 3], ['x', 'y', 'z']],
-            'x y': [1, 'z']
+            'x': counterify([1, 'y']),
+            'y': counterify([[1, 2, 3], ['x', 'y', 'z']]),
+            'x y': counterify([1, 'z']),
         },
         {
-            'x': [1, 'z']
+            'x': counterify([1, 'z']),
         }
     )
     storage = JsonStorage(backward=True)
@@ -144,35 +145,35 @@ def test_json_storage_state_separator():
     storage.add_links([('0', ('x', 'y'), 'z'), ('1', ('y', 'z'), 'x')])
     assert storage.nodes == {
         '0': {
-            'x y': [1, 'z']
+            'x y': counterify([1, 'z']),
         },
         '1': {
-            'y z': [1, 'x']
+            'y z': counterify([1, 'x']),
         }
     }
     assert storage.backward == {
         '0': {
-            'y z': [1, 'x']
+            'y z': counterify([1, 'x']),
         },
         '1': {
-            'z x': [1, 'y']
+            'z x': counterify([1, 'y']),
         }
     }
     storage.state_separator = ':'
     assert storage.nodes == {
         '0': {
-            'x:y': [1, 'z'],
+            'x:y': counterify([1, 'z']),
         },
         '1': {
-            'y:z': [1, 'x']
+            'y:z': counterify([1, 'x']),
         }
     }
     assert storage.backward == {
         '0': {
-            'y:z': [1, 'x']
+            'y:z': counterify([1, 'x']),
         },
         '1': {
-            'z:x': [1, 'y']
+            'z:x': counterify([1, 'y']),
         }
     }
 

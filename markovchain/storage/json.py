@@ -1,9 +1,59 @@
 import sys
 import json
-from collections import deque
+from collections import deque, Counter
 from itertools import chain, repeat, tee
 
 from .base import Storage
+
+
+NONE_VALUE = "\x00\x00"
+
+
+def dehydrate_key(key):
+    return (NONE_VALUE if key is None else key)
+
+
+def hydrate_key(key):
+    return (None if key == NONE_VALUE else key)
+
+
+def counterify(node_list):
+    if not node_list:
+        return Counter()
+    if isinstance(node_list, dict):  # Plain dict, probably just cast it
+        return Counter({hydrate_key(key): value for (key, value) in node_list.items()})
+    if isinstance(node_list[0], int):
+        value, key = node_list
+        return Counter({hydrate_key(key): value})
+    return Counter({hydrate_key(key): value for (value, key) in zip(*node_list)})
+
+
+def hydrate_nodes(nodes):
+    if not nodes:
+        return nodes
+    assert isinstance(nodes, dict)
+    nodes = nodes.copy()
+    for statename in list(nodes):
+        nodes[statename] = {
+            hydrate_key(src): counterify(dst)
+            for (src, dst)
+            in nodes[statename].items()
+        }
+    return nodes
+
+
+def dehydrate_nodes(nodes):
+    if not nodes:
+        return nodes
+    return {
+        statename: {
+            dehydrate_key(src): {dehydrate_key(dst): val for (dst, val) in dsts.items()}
+            for src, dsts
+            in state.items()
+        }
+        for (statename, state)
+        in nodes.items()
+    }
 
 
 class JsonStorage(Storage):
@@ -11,31 +61,26 @@ class JsonStorage(Storage):
 
     Attributes
     ----------
-    nodes : `dict` of `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`])
-    backward : `None` or `dict` of `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`])
+    nodes : Dict[str, Counter]
+    backward : Dict[str, Counter] | None
     """
     def __init__(self, nodes=None, backward=None, settings=None):
         """JSON storage constructor.
 
         Parameters
         ----------
-            nodes : `dict` of `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`]), optional
-            backward : `bool` or `dict` of `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`]), optional
+            nodes : Dict[str, Counter], optional
+            backward : `bool` or Dict[str, Counter], optional
         """
         if nodes is None:
             nodes = {}
 
-        if backward is None:
-            if settings is not None:
-                if settings.get('storage', {}).get('backward', False):
-                    backward = {}
-                else:
-                    backward = None
-        elif isinstance(backward, bool):
-            if backward:
-                backward = {}
-            else:
-                backward = None
+        if backward is None and settings and settings.get('storage', {}).get('backward', False):
+            backward = {}
+        elif backward is False:
+            backward = None
+        elif backward is True:
+            backward = {}
 
         super().__init__(settings)
         self.nodes = nodes
@@ -52,13 +97,14 @@ class JsonStorage(Storage):
 
         Parameters
         ----------
-        data : `dict` of `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`])
+        data : Dict[str, Dict[str, Counter]]
             Data.
         old : `str`
             Old separator.
         new : `str`
             New separator.
         """
+        # TODO: does this work correctly?
         for key, dataset in data.items():
             data[key] = dict(
                 (k.replace(old, new), v)
@@ -71,7 +117,7 @@ class JsonStorage(Storage):
 
         Parameters
         ----------
-        data : `None` or `dict` of `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`])
+        data : `None` or Dict[str, Dict[str, Counter]]
             Data.
         key : `str`
             Dataset key.
@@ -80,14 +126,18 @@ class JsonStorage(Storage):
 
         Returns
         -------
-        `None` or `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`])
+        `None` or Dict[str, Counter]
         """
         if data is None:
             return None
 
         if not create:
             return data[key]
-        return data.setdefault(key, {})
+
+        v = data.get(key)
+        if v is None:
+            data[key] = v = {}
+        return v
 
     @staticmethod
     def add_link(dataset, source, target, count=1):
@@ -95,7 +145,7 @@ class JsonStorage(Storage):
 
         Parameters
         ----------
-        dataset : `dict` of ([`int`, `str`] or [`list` of `int`, `list` of `str`])
+        dataset : Dict[str, Counter]
             Dataset.
         source : `iterable` of `str`
             Link source.
@@ -105,23 +155,8 @@ class JsonStorage(Storage):
             Link count (default: 1).
         """
         if source not in dataset:
-            dataset[source] = [count, target]
-            return
-
-        node = dataset[source]
-        values, links = node
-        if isinstance(links, list):
-            try:
-                idx = links.index(target)
-                values[idx] += count
-            except ValueError:
-                links.append(target)
-                values.append(count)
-        elif links == target:
-            node[0] += count
-        else:
-            node[0] = [values, count]
-            node[1] = [links, target]
+            dataset[source] = Counter()
+        dataset[source][target] += count
 
     def replace_state_separator(self, old_separator, new_separator):
         self.do_replace_state_separator(
@@ -172,9 +207,7 @@ class JsonStorage(Storage):
             raise ValueError('no backward nodes')
         try:
             node = dataset[int(backward)][self.join_state(state)]
-            if not isinstance(node[0], list):
-                return [(node[0], node[1])]
-            return list(zip(*node))
+            return [(num, w) for (w, num) in node.items()]
         except KeyError:
             return []
 
@@ -197,8 +230,8 @@ class JsonStorage(Storage):
 
         data = {
             'settings': self.settings,
-            'nodes': self.nodes,
-            'backward': self.backward
+            'nodes': dehydrate_nodes(self.nodes),
+            'backward': dehydrate_nodes(self.backward),
         }
 
         if fp is None:
@@ -219,4 +252,10 @@ class JsonStorage(Storage):
                 data = json.load(fp2)
         else:
             data = json.load(fp)
+
+        if 'nodes' in data:
+            data['nodes'] = hydrate_nodes(data['nodes'])
+        if 'backward' in data:
+            data['backward'] = hydrate_nodes(data['backward'])
+
         return cls(**data)
